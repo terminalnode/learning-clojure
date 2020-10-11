@@ -1,12 +1,8 @@
 (ns ch5-peg-thing.core
-  (:require [clojure.set :as set])
+  (:require [clojure.string])
   (:gen-class))
 
-(declare
-  successful-move
-  prompt-move
-  game-over
-  query-rows)
+(declare prompt-move game-over)
 
 (defn tri*
   "Generate a lazy sequence of triangular numbers."
@@ -131,10 +127,148 @@
   [board origin destination]
   (get (valid-moves board origin) destination))
 
+(defn make-move
+  "Move peg from origin to destination"
+  [board origin destination]
+  (if-let [jumped (valid-move? board origin destination)]
+          (move-peg (remove-peg board jumped) origin destination)))
+
+(defn can-move?
+  "Check if any of the pegs on the board have valid moves."
+  [board]
+  (some (comp not-empty (partial valid-moves board))
+        (map first (filter #(get (second %) :pegged) board))))
+
+(def alpha-start 97)
+(def alpha-end 123)
+(def letters (map (comp str char) (range alpha-start alpha-end)))
+(def pos-chars 3)
+(def ansi-styles
+  {:red   "[31m"
+   :green "[32m"
+   :blue  "[34m"
+   :reset "[0m"})
+
+(defn ansi
+  "Produce a string which will apply an ansi style"
+  [style]
+  (str \u001b (style ansi-styles)))
+
+(defn colorize
+  "Apply ansi color to text"
+  [text color]
+  (str (ansi color) text (ansi :reset)))
+
+(defn render-pos
+  [board pos]
+  (str (nth letters (dec pos))
+       (if (get-in board [pos :pegged])
+         (colorize "0" :blue)
+         (colorize "-" :red))))
+
+(defn render-pos
+  "Render a given position on the board."
+  [board pos]
+  (str (nth letters (dec pos))
+       (if (get-in board [pos :pegged])
+         "0" "-")))
+
+(defn row-positions
+  "Return all positions in a given row."
+  [row-num]
+  (range (inc (or (row-tri (dec row-num)) 0))
+         (inc (row-tri row-num))))
+
+(defn row-padding
+  "String of spaces to be added at the start of a row for padding."
+  [row-num rows]
+  (let [pad-length (/ (* (- rows row-num) pos-chars) 2)]
+    (apply str (take pad-length (repeat " ")))))
+
+(defn render-row
+  "Print a given row to the console."
+  [board row-num]
+  (str (row-padding row-num (:rows board))
+       (clojure.string/join " " (map (partial render-pos board)
+                                     (row-positions row-num)))))
+
+(defn print-board
+  "Print the whole board."
+  [board]
+  (doseq [row-num (range 1 (inc (:rows board)))]
+    (println (render-row board row-num))))
+
+(defn letter->pos
+  "Converts a letter string to a number. First is used to convert the string to a character."
+  [letter]
+  (inc (- (int (first letter)) alpha-start)))
+
+(defn get-input
+  "Wait for input from the player, then cleans input."
+  ([] (get-input nil))
+  ([default]
+   (let [input (clojure.string/trim (read-line))]
+     (if (empty? input)
+       default
+       (clojure.string/lower-case input)))))
+
+(defn characters-as-strings
+  [char-list]
+  (re-seq #"\S" char-list))
+
+(defn user-entered-valid-move
+  [board]
+  (println "That's not a valid move! Try again!")
+  (prompt-move board))
+
+(defn user-entered-invalid-move
+  [board]
+  (if (can-move? board)
+    (prompt-move board)
+    (game-over board)))
+
+(defn prompt-move
+  [board]
+  (println "\nHere's your board!")
+  (print-board board)
+  (println "Move from where to where? Enter two letters:")
+  (let [input (map letter->pos (characters-as-strings (get-input)))]
+    (if-let [new-board (make-move board (first input) (second input))]
+      (user-entered-valid-move new-board)
+      (user-entered-invalid-move board))))
+
+(defn prompt-empty-peg
+  [board]
+  (println "Here's your board:")
+  (print-board board)
+  (println "Which peg would you like to remove? [e]")
+  (prompt-move (remove-peg board (letter->pos (get-input "e")))))
+
+(defn prompt-rows
+  []
+  (println "How many rows? [5]")
+  (let [rows (Integer. (get-input 5))
+        board (new-board rows)]
+    (prompt-empty-peg board)))
+
+(defn game-over
+  [board]
+  (let [remaining-pegs (count (filter :pegged (vals board)))]
+    (println "Game over! You had" remaining-pegs "pegs left:")
+    (print-board board)
+    (println "Play again? [Y/n]")
+    (let [input (clojure.string/lower-case (get-input "y"))]
+      (if (= "y" input)
+        (prompt-rows)
+        (do
+          (println "Bye!")
+          (System/exit 0))))))
+
 (def my-board (assoc-in (new-board 5) [4 :pegged] false))
 
 (defn -main
   "Implementing the peg thing from chapter five."
   [& _]
-  (println "Get ready to play Peg Thing!"))
+  (println "Get ready to play Peg Thing!")
+  (prompt-rows))
 
